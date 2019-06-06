@@ -45,6 +45,7 @@ const (
 	GenerateStr        = "generate"
 	RegenerateStr      = "regenerate"
 	ProfileGenerateStr = "generate-profile"
+	EggGenerate        = "generate-egg"
 	ProfilesStr        = "profiles"
 	NewProfileStr      = "new-profile"
 
@@ -88,6 +89,9 @@ const (
 	MigrateStr          = "migrate"
 	PortfwdStr          = "portfwd"
 
+	WebsitesStr = "websites"
+
+	// Groups
 	GenericHelpGroup     = "Generic:"
 	SliverHelpGroup      = "Sliver:"
 	SliverWinHelpGroup   = "Sliver - Windows:"

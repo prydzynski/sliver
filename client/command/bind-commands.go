@@ -30,6 +30,7 @@ const (
 	defaultMTLSLPort  = 8888
 	defaultHTTPLPort  = 80
 	defaultHTTPSLPort = 443
+	defaultTCPPort    = 4444
 
 	defaultReconnect = 60
 	defaultMaxErrors = 1000
@@ -98,6 +99,7 @@ func BindCommands(app *grumble.App, server *core.SliverServer) {
 		LongHelp: help.GetHelpFor(consts.HttpStr),
 		Flags: func(f *grumble.Flags) {
 			f.String("d", "domain", "", "limit responses to specific domain")
+			f.String("w", "website", "", "website name (see websites cmd)")
 			f.Int("l", "lport", defaultHTTPLPort, "tcp listen port")
 		},
 		Run: func(ctx *grumble.Context) error {
@@ -115,6 +117,7 @@ func BindCommands(app *grumble.App, server *core.SliverServer) {
 		LongHelp: help.GetHelpFor(consts.HttpsStr),
 		Flags: func(f *grumble.Flags) {
 			f.String("d", "domain", "", "limit responses to specific domain")
+			f.String("w", "website", "", "website name (see websites cmd)")
 			f.Int("l", "lport", defaultHTTPSLPort, "tcp listen port")
 
 			f.String("c", "cert", "", "PEM encoded certificate file")
@@ -244,6 +247,7 @@ func BindCommands(app *grumble.App, server *core.SliverServer) {
 			f.String("o", "os", "windows", "operating system")
 			f.String("a", "arch", "amd64", "cpu architecture")
 			f.Bool("d", "debug", false, "enable debug features")
+			f.Bool("s", "skip-symbols", false, "skip symbol obfuscation")
 
 			f.String("c", "canary", "", "canary domain(s)")
 
@@ -273,6 +277,44 @@ func BindCommands(app *grumble.App, server *core.SliverServer) {
 	})
 
 	app.AddCommand(&grumble.Command{
+		Name:     consts.EggGenerate,
+		Help:     "Generate an egg shellcode (sliver stager)",
+		LongHelp: help.GetHelpFor(consts.EggGenerate),
+		Flags: func(f *grumble.Flags) {
+			f.String("o", "os", "windows", "operating system")
+			f.String("a", "arch", "amd64", "cpu architecture")
+			f.Bool("d", "debug", false, "enable debug features")
+
+			f.String("m", "mtls", "", "mtls connection strings")
+			f.String("t", "http", "", "http(s) connection strings")
+			f.String("n", "dns", "", "dns connection strings")
+
+			f.Int("j", "reconnect", 60, "attempt to reconnect every n second(s)")
+			f.Int("k", "max-errors", 1000, "max number of connection errors")
+
+			f.String("w", "limit-datetime", "", "limit execution to before datetime")
+			f.Bool("x", "limit-domainjoined", false, "limit execution to domain joined machines")
+			f.String("y", "limit-username", "", "limit execution to specified username")
+			f.String("z", "limit-hostname", "", "limit execution to specified hostname")
+
+			f.String("r", "format", "shellcode", "Fixed to 'shellcode' - do not change") // TODO: find a better way to handle this
+
+			f.String("s", "save", "", "directory to save the egg to")
+			f.String("c", "listener-url", "", "URL to fetch the stage from (tcp://SLIVER_SERVER:PORT or http(s)://SLIVER_SERVER:PORT")
+			f.String("v", "output-format", "raw", "Output format (msfvenom's style). All msfvenom's transform formats are supported")
+			f.String("x", "canary", "", "canary domain(s)")
+			f.Bool("s", "skip-symbols", false, "skip symbol obfuscation")
+		},
+		Run: func(ctx *grumble.Context) error {
+			fmt.Println()
+			generateEgg(ctx, server.RPC)
+			fmt.Println()
+			return nil
+		},
+		HelpGroup: consts.GenericHelpGroup,
+	})
+
+	app.AddCommand(&grumble.Command{
 		Name:     consts.NewProfileStr,
 		Help:     "Save a new sliver profile",
 		LongHelp: help.GetHelpFor(consts.NewProfileStr),
@@ -280,6 +322,7 @@ func BindCommands(app *grumble.App, server *core.SliverServer) {
 			f.String("o", "os", "windows", "operating system")
 			f.String("a", "arch", "amd64", "cpu architecture")
 			f.Bool("d", "debug", false, "enable debug features")
+			f.Bool("s", "skip-symbols", false, "skip symbol obfuscation")
 
 			f.String("m", "mtls", "", "mtls domain(s)")
 			f.String("t", "http", "", "http[s] domain(s)")
@@ -779,4 +822,25 @@ func BindCommands(app *grumble.App, server *core.SliverServer) {
 		},
 	})
 	app.AddCommand(portfwd)
+	app.AddCommand(&grumble.Command{
+		Name:     consts.WebsitesStr,
+		Help:     "Host a static file on a website (used with HTTP C2)",
+		LongHelp: help.GetHelpFor(consts.WebsitesStr),
+		Flags: func(f *grumble.Flags) {
+			f.String("w", "website", "", "website name")
+			f.String("t", "content-type", "", "mime content-type (if blank use file ext.)")
+			f.String("p", "web-path", "/", "http path to host file at")
+			f.String("c", "content", "", "local file path/dir (must use --recursive for dir)")
+			f.Bool("r", "recursive", false, "recursively add content from dir, --web-path is prefixed")
+		},
+		AllowArgs: true,
+		Run: func(ctx *grumble.Context) error {
+			fmt.Println()
+			websites(ctx, server.RPC)
+			fmt.Println()
+			return nil
+		},
+		HelpGroup: consts.GenericHelpGroup,
+	})
+
 }

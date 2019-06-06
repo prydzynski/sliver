@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -21,6 +22,31 @@ import (
 	"github.com/desertbit/grumble"
 	"github.com/golang/protobuf/proto"
 )
+
+var validFormats = []string{
+	"bash",
+	"c",
+	"csharp",
+	"dw",
+	"dword",
+	"hex",
+	"java",
+	"js_be",
+	"js_le",
+	"num",
+	"perl",
+	"pl",
+	"powershell",
+	"ps1",
+	"py",
+	"python",
+	"raw",
+	"rb",
+	"ruby",
+	"sh",
+	"vbapplication",
+	"vbscript",
+}
 
 func generate(ctx *grumble.Context, rpc RPCServer) {
 	config := parseCompileFlags(ctx)
@@ -87,12 +113,108 @@ func regenerate(ctx *grumble.Context, rpc RPCServer) {
 	fmt.Printf(Info+"Sliver binary saved to: %s\n", saveTo)
 }
 
+func generateEgg(ctx *grumble.Context, rpc RPCServer) {
+	outFmt := ctx.Flags.String("output-format")
+	validFmt := false
+	for _, f := range validFormats {
+		if f == outFmt {
+			validFmt = true
+			break
+		}
+	}
+	if !validFmt {
+		fmt.Printf(Warn+"Invalid output format: %s", outFmt)
+		return
+	}
+	stagingURL := ctx.Flags.String("listener-url")
+	if stagingURL == "" {
+		return
+	}
+	save := ctx.Flags.String("save")
+	config := parseCompileFlags(ctx)
+	if config == nil {
+		return
+	}
+	config.Format = clientpb.SliverConfig_SHELLCODE
+	config.IsSharedLib = true
+	// Find job type (tcp / http)
+	u, err := url.Parse(stagingURL)
+	if err != nil {
+		fmt.Printf(Warn + "listener-url format not supported")
+		return
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		fmt.Printf(Warn+"Invalid port number: %s", err.Error())
+		return
+	}
+	eggConfig := &clientpb.EggConfig{
+		Host:   u.Hostname(),
+		Port:   uint32(port),
+		Arch:   config.GOARCH,
+		Format: outFmt,
+	}
+	switch u.Scheme {
+	case "tcp":
+		eggConfig.Protocol = clientpb.EggConfig_TCP
+	case "http":
+		eggConfig.Protocol = clientpb.EggConfig_HTTP
+	case "https":
+		eggConfig.Protocol = clientpb.EggConfig_HTTPS
+	default:
+		eggConfig.Protocol = clientpb.EggConfig_TCP
+	}
+	ctrl := make(chan bool)
+	go spin.Until("Creating stager shellcode...", ctrl)
+	data, _ := proto.Marshal(&clientpb.EggRequest{
+		EConfig: eggConfig,
+		Config:  config,
+	})
+	resp := <-rpc(&sliverpb.Envelope{
+		Type: clientpb.MsgEggReq,
+		Data: data,
+	}, defaultTimeout)
+	ctrl <- true
+	if resp.Err != "" {
+		fmt.Printf(Warn+"%s", resp.Err)
+		return
+	}
+	eggResp := &clientpb.Egg{}
+	err = proto.Unmarshal(resp.Data, eggResp)
+	if err != nil {
+		fmt.Printf(Warn+"Unmarshaling envelope error: %v\n", err)
+		return
+	}
+	// Don't display raw shellcode out stdout
+	if save != "" || outFmt == "raw" {
+		// Save it to disk
+		saveTo, _ := filepath.Abs(save)
+		fi, err := os.Stat(saveTo)
+		if err != nil {
+			fmt.Printf(Warn+"Failed to generate sliver egg %v\n", err)
+			return
+		}
+		if fi.IsDir() {
+			saveTo = filepath.Join(saveTo, eggResp.Filename)
+		}
+		err = ioutil.WriteFile(saveTo, eggResp.Data, os.ModePerm)
+		if err != nil {
+			fmt.Printf(Warn+"Failed to write to: %s\n", saveTo)
+			return
+		}
+		fmt.Printf(Info+"Sliver egg saved to: %s\n", saveTo)
+	} else {
+		// Display shellcode to stdout
+		fmt.Println("\n" + Info + "Here's your Egg:")
+		fmt.Println(string(eggResp.Data))
+	}
+	fmt.Printf("\n"+Info+"Successfully started job #%d\n", eggResp.JobID)
+}
+
 // Shared function that extracts the compile flags from the grumble context
 func parseCompileFlags(ctx *grumble.Context) *clientpb.SliverConfig {
 	targetOS := strings.ToLower(ctx.Flags.String("os"))
 	arch := strings.ToLower(ctx.Flags.String("arch"))
-
-	debug := ctx.Flags.Bool("debug")
 
 	c2s := []*clientpb.SliverC2{}
 
@@ -104,6 +226,13 @@ func parseCompileFlags(ctx *grumble.Context) *clientpb.SliverConfig {
 
 	dnsC2 := parseDNSc2(ctx.Flags.String("dns"))
 	c2s = append(c2s, dnsC2...)
+
+	var symbolObfuscation bool
+	if ctx.Flags.Bool("debug") {
+		symbolObfuscation = false
+	} else {
+		symbolObfuscation = !ctx.Flags.Bool("skip-symbols")
+	}
 
 	if len(mtlsC2) == 0 && len(httpC2) == 0 && len(dnsC2) == 0 {
 		fmt.Printf(Warn + "Must specify at least one of --mtls, --http, or --dns\n")
@@ -164,11 +293,12 @@ func parseCompileFlags(ctx *grumble.Context) *clientpb.SliverConfig {
 	}
 
 	config := &clientpb.SliverConfig{
-		GOOS:          targetOS,
-		GOARCH:        arch,
-		Debug:         debug,
-		C2:            c2s,
-		CanaryDomains: canaryDomains,
+		GOOS:             targetOS,
+		GOARCH:           arch,
+		Debug:            ctx.Flags.Bool("debug"),
+		ObfuscateSymbols: symbolObfuscation,
+		C2:               c2s,
+		CanaryDomains:    canaryDomains,
 
 		ReconnectInterval:   uint32(reconnectInverval),
 		MaxConnectionErrors: uint32(maxConnectionErrors),
@@ -277,20 +407,32 @@ func profileGenerate(ctx *grumble.Context, rpc RPCServer) {
 
 func compile(config *clientpb.SliverConfig, save string, rpc RPCServer) {
 
-	fmt.Printf(Info+"Generating new %s/%s sliver binary \n", config.GOOS, config.GOARCH)
+	fmt.Printf(Info+"Generating new %s/%s Sliver binary\n", config.GOOS, config.GOARCH)
+
+	if config.ObfuscateSymbols {
+		fmt.Printf(Info + "Symbol obfuscation is enabled, this process takes about 15 minutes\n")
+	} else if !config.Debug {
+		fmt.Printf(Warn+"Symbol obfuscation is %sdisabled%s\n", bold, normal)
+	}
+
+	start := time.Now()
 	ctrl := make(chan bool)
-	go spin.Until("Compiling ...", ctrl)
+	go spin.Until("Compiling, please wait ...", ctrl)
 
 	generateReq, _ := proto.Marshal(&clientpb.GenerateReq{Config: config})
 	resp := <-rpc(&sliverpb.Envelope{
 		Type: clientpb.MsgGenerate,
 		Data: generateReq,
-	}, 1200*time.Second) // TODO: make timeout a parameter
+	}, 45*time.Minute)
 	ctrl <- true
+	<-ctrl
 	if resp.Err != "" {
 		fmt.Printf(Warn+"%s\n", resp.Err)
 		return
 	}
+	end := time.Now()
+	elapsed := time.Time{}.Add(end.Sub(start))
+	fmt.Printf(clearln+Info+"Build completed in %s\n", elapsed.Format("15:04:05"))
 
 	generated := &clientpb.Generate{}
 	proto.Unmarshal(resp.Data, generated)
@@ -299,6 +441,10 @@ func compile(config *clientpb.SliverConfig, save string, rpc RPCServer) {
 	fi, err := os.Stat(saveTo)
 	if err != nil {
 		fmt.Printf(Warn+"Failed to generate sliver %v\n", err)
+		return
+	}
+	if len(generated.File.Data) == 0 {
+		fmt.Printf(Warn + "Build failed, no file data\n")
 		return
 	}
 	if fi.IsDir() {

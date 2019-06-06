@@ -15,7 +15,8 @@ const (
 	// MsgJobs - Jobs message
 	MsgJobs
 	MsgJobKill
-
+	// MsgTcp - TCP message
+	MsgTcp
 	// MsgMtls - MTLS message
 	MsgMtls
 
@@ -44,9 +45,15 @@ const (
 	MsgTask
 	MsgMigrate
 	MsgGetSystemReq
+	MsgEggReq
 
 	MsgRegenerate
 
 	MsgListSliverBuilds
 	MsgListCanaries
+
+	// Website related messages
+	MsgWebsiteList
+	MsgWebsiteAddContent
+	MsgWebsiteRemoveContent
 )
