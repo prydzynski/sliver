@@ -184,7 +184,7 @@ func portfwdHandler(envelope *pb.Envelope, connection *transports.Connection) {
 			n, err := tunnel.Reader.Read(readBuf)
 			if err == io.EOF {
 				//{{if .Debug}}
-				log.Println("[portfwd] Read EOF on tunnel %d", tunnel.ID)
+				log.Printf("[portfwd] Read EOF on tunnel %d", tunnel.ID)
 				//{{end}}
 				defer cleanup("EOF")
 				return
