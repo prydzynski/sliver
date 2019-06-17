@@ -1,6 +1,23 @@
 package command
 
 /*
+	Sliver Implant Framework
+	Copyright (C) 2019  Bishop Fox
+
+	This program is free software: you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
+
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
+
+	You should have received a copy of the GNU General Public License
+	along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+	---
 	This file contains all of the code that binds a given string/flags/etc. to a
 	command implementation function.
 
@@ -277,9 +294,9 @@ func BindCommands(app *grumble.App, server *core.SliverServer) {
 	})
 
 	app.AddCommand(&grumble.Command{
-		Name:     consts.EggGenerate,
+		Name:     consts.GenerateEggStr,
 		Help:     "Generate an egg shellcode (sliver stager)",
-		LongHelp: help.GetHelpFor(consts.EggGenerate),
+		LongHelp: help.GetHelpFor(consts.GenerateEggStr),
 		Flags: func(f *grumble.Flags) {
 			f.String("o", "os", "windows", "operating system")
 			f.String("a", "arch", "amd64", "cpu architecture")
@@ -724,6 +741,9 @@ func BindCommands(app *grumble.App, server *core.SliverServer) {
 		Name:     consts.GetSystemStr,
 		Help:     "Spawns a new sliver session as the NT AUTHORITY\\SYSTEM user (Windows Only)",
 		LongHelp: help.GetHelpFor(consts.GetSystemStr),
+		Flags: func(f *grumble.Flags) {
+			f.String("p", "process", "spoolsv.exe", "SYSTEM process to inject into")
+		},
 		Run: func(ctx *grumble.Context) error {
 			fmt.Println()
 			getsystem(ctx, server.RPC)
@@ -745,6 +765,7 @@ func BindCommands(app *grumble.App, server *core.SliverServer) {
 			return nil
 		},
 		Flags: func(f *grumble.Flags) {
+			f.String("p", "process", "notepad.exe", "Hosting process to inject into")
 			f.Int("t", "timeout", 30, "Time to wait before killing the hosting process (seconds)")
 		},
 		HelpGroup: consts.SliverWinHelpGroup,

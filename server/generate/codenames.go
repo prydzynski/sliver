@@ -1,9 +1,27 @@
 package generate
 
+/*
+	Sliver Implant Framework
+	Copyright (C) 2019  Bishop Fox
+
+	This program is free software: you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
+
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
+
+	You should have received a copy of the GNU General Public License
+	along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
 import (
 	"bufio"
 	"fmt"
-	"math/rand"
+	insecureRand "math/rand"
 	"os"
 	"path"
 	"strings"
@@ -45,19 +63,19 @@ func readlines(path string) []string {
 
 // getRandomAdjective - Get a random noun, not cryptographically secure
 func getRandomAdjective() string {
-	rand.Seed(time.Now().UnixNano())
+	insecureRand.Seed(time.Now().UnixNano())
 	appDir := assets.GetRootAppDir()
 	words := readlines(path.Join(appDir, "adjectives.txt"))
-	word := words[rand.Intn(len(words)-1)]
+	word := words[insecureRand.Intn(len(words)-1)]
 	return strings.TrimSpace(word)
 }
 
 // getRandomNoun - Get a random noun, not cryptographically secure
 func getRandomNoun() string {
-	rand.Seed(time.Now().Unix())
+	insecureRand.Seed(time.Now().UnixNano())
 	appDir := assets.GetRootAppDir()
 	words := readlines(path.Join(appDir, "nouns.txt"))
-	word := words[rand.Intn(len(words)-1)]
+	word := words[insecureRand.Intn(len(words)-1)]
 	return strings.TrimSpace(word)
 }
 
@@ -65,5 +83,6 @@ func getRandomNoun() string {
 func GetCodename() string {
 	adjective := strings.ToUpper(getRandomAdjective())
 	noun := strings.ToUpper(getRandomNoun())
-	return fmt.Sprintf("%s_%s", adjective, noun)
+	codename := fmt.Sprintf("%s_%s", adjective, noun)
+	return strings.ReplaceAll(codename, " ", "-")
 }

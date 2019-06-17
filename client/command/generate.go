@@ -1,5 +1,23 @@
 package command
 
+/*
+	Sliver Implant Framework
+	Copyright (C) 2019  Bishop Fox
+
+	This program is free software: you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
+
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
+
+	You should have received a copy of the GNU General Public License
+	along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
 import (
 	"bytes"
 	"fmt"
@@ -173,7 +191,7 @@ func generateEgg(ctx *grumble.Context, rpc RPCServer) {
 	resp := <-rpc(&sliverpb.Envelope{
 		Type: clientpb.MsgEggReq,
 		Data: data,
-	}, defaultTimeout)
+	}, 45*time.Minute)
 	ctrl <- true
 	if resp.Err != "" {
 		fmt.Printf(Warn+"%s", resp.Err)
@@ -474,17 +492,19 @@ func profiles(ctx *grumble.Context, rpc RPCServer) {
 		strings.Repeat("=", len("Platform")),
 		strings.Repeat("=", len("Command & Control")),
 		strings.Repeat("=", len("Debug")),
-		strings.Repeat("=", len("Limits")))
+		strings.Repeat("=", len("Limitations")))
 
 	for name, profile := range *profiles {
 		config := profile.Config
-		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n",
-			name,
-			fmt.Sprintf("%s/%s", config.GOOS, config.GOARCH),
-			fmt.Sprintf("[1] %s", config.C2[0].URL),
-			fmt.Sprintf("%v", config.Debug),
-			getLimitsString(config),
-		)
+		if 0 < len(config.C2) {
+			fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n",
+				name,
+				fmt.Sprintf("%s/%s", config.GOOS, config.GOARCH),
+				fmt.Sprintf("[1] %s", config.C2[0].URL),
+				fmt.Sprintf("%v", config.Debug),
+				getLimitsString(config),
+			)
+		}
 		if 1 < len(config.C2) {
 			for index, c2 := range config.C2[1:] {
 				fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n",

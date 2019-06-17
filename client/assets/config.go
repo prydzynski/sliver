@@ -1,5 +1,23 @@
 package assets
 
+/*
+	Sliver Implant Framework
+	Copyright (C) 2019  Bishop Fox
+
+	This program is free software: you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
+
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
+
+	You should have received a copy of the GNU General Public License
+	along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
 import (
 	"encoding/json"
 	"errors"
@@ -93,7 +111,7 @@ func SaveConfig(config *ClientConfig) error {
 	filename := fmt.Sprintf("%s_%s.cfg", filepath.Base(config.Operator), filepath.Base(config.LHost))
 	saveTo, _ := filepath.Abs(path.Join(configDir, filename))
 	configJSON, _ := json.Marshal(config)
-	err := ioutil.WriteFile(saveTo, configJSON, 0644)
+	err := ioutil.WriteFile(saveTo, configJSON, 0600)
 	if err != nil {
 		log.Printf("Failed to write config to: %s (%v)", saveTo, err)
 		return err
