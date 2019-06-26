@@ -112,4 +112,7 @@ const (
 	MsgExecuteAssembly
 	// MsgMigrateReq - Spawn a new sliver in a designated process
 	MsgMigrateReq
+
+	// MsgIfconfigReq - Ifconfig (network interface config) request
+	MsgIfconfigReq
 )
