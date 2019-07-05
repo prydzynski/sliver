@@ -68,5 +68,7 @@ RUN make clean \
     && rm -rf /go/src/* \
     && rm -rf /root/.sliver
 
+RUN chmod 777 /go/src/github.com/bishopfox/sliver
+
 USER sliver
 ENTRYPOINT [ "/opt/sliver-server" ]
